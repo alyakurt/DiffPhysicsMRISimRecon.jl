@@ -1,0 +1,16 @@
+method = complex AD with plain ESPIRiT maps
+case = FullySampled128x128
+resolution = 128x128
+acceleration = 1
+coils = 12
+samples_per_coil = 16384
+iterations = 40
+final_loss = 1.5466725e-5
+relative_data_reduction = 0.9939427
+gradient_relative_error = 8.9705836e-8
+magnitude_extrema = (5.7245f-10, 1.5006629f-5)
+display_range = (0.0f0, 1.0389276f-5)
+sensitivity_maps = plain ESPIRiT from /Users/alyakurt/Desktop/Archive (1)/mrd_hdf5/meas_MID01094_FID34194_hard_epi_20interleaves_5avg_fatsat.mrd
+measured_data = /Users/alyakurt/Desktop/Archive (1)/mrd_hdf5/meas_MID01094_FID34194_hard_epi_20interleaves_5avg_fatsat.mrd
+sequence = /Users/alyakurt/Desktop/Archive (1)/seq/hard_epi_20interleaves_5avg_fatsat.seq
+display_percentile = 99.5

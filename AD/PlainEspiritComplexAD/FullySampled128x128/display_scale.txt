@@ -1,0 +1,3 @@
+display_percentile = 99.5
+display_range = (0.0f0, 1.0389276f-5)
+display_scale_is_case_specific = true
