@@ -1,0 +1,8 @@
+method = AD
+resolution = 64x64
+final_loss = 0.0003773598
+relative_data_reduction = 0.7315707
+gradient_relative_error = 7.1399896e-8
+density_extrema = (0.0f0, 1.4850556f-5)
+center_mean = 7.3275605e-6
+display_range = (0.0f0, 2.0f-5)

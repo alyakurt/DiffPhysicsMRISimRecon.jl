@@ -1,0 +1,38 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1786057932.732890 1556112 service.cc:154] XLA service 0x193638b0 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+I0000 00:00:1786057932.733056 1556112 service.cc:170]   StreamExecutor [0]: NVIDIA TITAN RTX, Compute Capability 7.5 (Driver: 12.8.0[570.133.7]; Runtime: 12.9.0; Toolkit: 12.9.0; DNN: 9.21.0)
+I0000 00:00:1786057932.745453 1556112 se_gpu_pjrt_client.cc:1221] Using BFC allocator.
+I0000 00:00:1786057932.745615 1556112 gpu_helpers.cc:162] XLA backend allocating 17.60GiB (18893242368 bytes) on device 0 for BFCAllocator.
+I0000 00:00:1786057932.753643 1556112 cuda_dnn.cc:440] Loaded cuDNN version 92100
+  Activating project at `~/DiffPhysicsMRISimRecon-AD`
+[ Info: Loading sequence hard_epi_2x_20interleaves_5avg_fatsat.seq ...
+┌ Info: Pulseq 1.5.1 is supported, but Soft Delay and RF Shimming extensions are not yet included
+└ (see https://github.com/JuliaHealth/KomaMRI.jl/issues/714)
+Cartesian trajectory mode error: 3.0400416761722227e-6
+FFT forward relative error: 0.00015902659
+FFT adjoint relative error: 2.7305632e-7
+AD gradient relative error: 1.1484525e-7
+Initial loss: 98190.67
+Iteration 1: loss = 98123.56, gradient = 8193.703, λ = 1.0e-6
+Iteration 2: loss = 67845.766, gradient = 8186.9727, λ = 0.00059917214
+Iteration 3: loss = 59617.14, gradient = 4219.7905, λ = 0.0005991955
+Iteration 4: loss = 56885.08, gradient = 2339.535, λ = 0.00063512806
+Iteration 5: loss = 55802.54, gradient = 1383.0125, λ = 0.0006999551
+Iteration 6: loss = 55260.58, gradient = 888.0376, λ = 0.0008295767
+Iteration 7: loss = 54935.4, gradient = 604.7225, λ = 0.0010706853
+Iteration 8: loss = 54738.27, gradient = 411.41968, λ = 0.0014269815
+Iteration 9: loss = 54633.703, gradient = 268.30765, λ = 0.0017794471
+Iteration 10: loss = 54577.875, gradient = 175.95592, λ = 0.0021905347
+Iteration 11: loss = 54546.324, gradient = 117.186714, λ = 0.0028212303
+Iteration 12: loss = 54530.07, gradient = 75.72921, λ = 0.0035195723
+Iteration 13: loss = 54522.418, gradient = 47.63506, λ = 0.0042215213
+Iteration 14: loss = 54519.3, gradient = 30.178724, λ = 0.004642902
+Iteration 15: loss = 54518.605, gradient = 26.876362, λ = 0.002527109
+Iteration 16: loss = 54518.117, gradient = 29.28303, λ = 0.0007746199
+Iteration 17: loss = 54517.957, gradient = 16.384117, λ = 0.00062980276
+Iteration 18: loss = 54517.79, gradient = 14.502149, λ = 0.0008480259
+Iteration 19: loss = 54517.566, gradient = 13.395668, λ = 0.0012990291
+Iteration 20: loss = 54517.273, gradient = 12.237529, λ = 0.0020669783
+Final loss: 54517.273
+Density extrema: (-0.29112023f0, 1.3470889f0)
+Saved images to: /home/alyakurt/DiffPhysicsMRISimRecon-AD/AD/ADDiff32x32

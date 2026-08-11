@@ -1,0 +1,60 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1786057416.702306 1546924 service.cc:154] XLA service 0x29c213f0 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+I0000 00:00:1786057416.702386 1546924 service.cc:170]   StreamExecutor [0]: NVIDIA A100 80GB PCIe, Compute Capability 8.0 (Driver: 12.8.0[570.133.7]; Runtime: 12.9.0; Toolkit: 12.9.0; DNN: 9.21.0)
+I0000 00:00:1786057416.704190 1546924 se_gpu_pjrt_client.cc:1221] Using BFC allocator.
+I0000 00:00:1786057416.704243 1546924 gpu_helpers.cc:162] XLA backend allocating 59.44GiB (63822626816 bytes) on device 0 for BFCAllocator.
+I0000 00:00:1786057416.711648 1546924 cuda_dnn.cc:440] Loaded cuDNN version 92100
+  Activating project at `~/DiffPhysicsMRISimRecon-AD`
+Precompiling packages...
+    KomaMRIBase Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRIBase/6mUhc_28Lhc.ji.pidfile)
+  35098.9 ms  ✓ KomaMRIBase
+    KomaMRIBase → KomaMRIBaseReactantExt Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRIBaseReactantExt/jfYKn_28Lhc.ji.pidfile)
+    KomaMRIBase → KomaMRIBaseUnitfulExt Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRIBaseUnitfulExt/NeLkq_28Lhc.ji.pidfile)
+    KomaMRIPlots Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRIPlots/U3X70_28Lhc.ji.pidfile)
+    KomaMRICore Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRICore/3fcVD_28Lhc.ji.pidfile)
+    KomaMRIFiles Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRIFiles/2iEOB_28Lhc.ji.pidfile)
+   3949.0 ms  ✓ KomaMRIBase → KomaMRIBaseUnitfulExt
+   5406.9 ms  ✓ KomaMRIPlots
+   7678.5 ms  ✓ KomaMRIBase → KomaMRIBaseReactantExt
+  28501.7 ms  ✓ KomaMRIFiles
+  75226.0 ms  ✓ KomaMRICore
+    KomaMRICore → KomaMetalExt Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMetalExt/mH2jj_28Lhc.ji.pidfile)
+    KomaMRICore → KomaMRICoreReactantExt Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRICoreReactantExt/t3rya_28Lhc.ji.pidfile)
+    KomaMRICore → KomaCUDAExt Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaCUDAExt/1Ye0T_28Lhc.ji.pidfile)
+    KomaMRI Being precompiled by another process (pid: 1546906, pidfile: /home/alyakurt/.julia/compiled/v1.12/KomaMRI/rprms_28Lhc.ji.pidfile)
+   7907.2 ms  ✓ KomaMRICore → KomaMetalExt
+  10446.0 ms  ✓ KomaMRICore → KomaCUDAExt
+  10769.5 ms  ✓ KomaMRICore → KomaMRICoreReactantExt
+  42486.0 ms  ✓ KomaMRI
+  10 dependencies successfully precompiled in 154 seconds. 387 already precompiled.
+[ Info: Loading sequence hard_epi_2x_20interleaves_5avg_fatsat.seq ...
+┌ Info: Pulseq 1.5.1 is supported, but Soft Delay and RF Shimming extensions are not yet included
+└ (see https://github.com/JuliaHealth/KomaMRI.jl/issues/714)
+Cartesian trajectory mode error: 3.0400416761722227e-6
+FFT forward relative error: 4.520879e-5
+FFT adjoint relative error: 4.4951083e-8
+AD gradient relative error: 1.2274755e-7
+Initial loss: 3.89772e6
+Iteration 1: loss = 3.8512752e6, gradient = 215860.88, λ = 1.0e-6
+Iteration 2: loss = 1.2207985e6, gradient = 214461.61, λ = 7.5815704e-5
+Iteration 3: loss = 500647.2, gradient = 110865.086, λ = 7.5844415e-5
+Iteration 4: loss = 258640.14, gradient = 61741.46, λ = 8.083953e-5
+Iteration 5: loss = 163715.75, gradient = 36367.99, λ = 8.912971e-5
+Iteration 6: loss = 117964.95, gradient = 23041.418, λ = 0.00010489308
+Iteration 7: loss = 92358.42, gradient = 15330.612, λ = 0.00013257623
+Iteration 8: loss = 78139.836, gradient = 10142.043, λ = 0.00017089608
+Iteration 9: loss = 71139.7, gradient = 6451.7466, λ = 0.00020771218
+Iteration 10: loss = 67629.28, gradient = 4141.1484, λ = 0.00024937
+Iteration 11: loss = 65669.75, gradient = 2751.2214, λ = 0.00031377265
+Iteration 12: loss = 64529.023, gradient = 1853.483, λ = 0.0004002913
+Iteration 13: loss = 63836.83, gradient = 1266.3018, λ = 0.0005190503
+Iteration 14: loss = 63415.56, gradient = 870.95245, λ = 0.000678193
+Iteration 15: loss = 63274.742, gradient = 633.7729, λ = 0.0006728927
+Iteration 16: loss = 63188.996, gradient = 1101.4746, λ = 0.00016957398
+Iteration 17: loss = 63170.336, gradient = 570.5439, λ = 6.700525e-5
+Iteration 18: loss = 63156.336, gradient = 434.59213, λ = 7.914391e-5
+Iteration 19: loss = 63138.848, gradient = 392.62402, λ = 0.00011688567
+Iteration 20: loss = 63113.99, gradient = 373.323, λ = 0.00018395574
+Final loss: 63113.99
+Density extrema: (-0.3272805f0, 1.4354514f0)
+Saved images to: /home/alyakurt/DiffPhysicsMRISimRecon-AD/AD/ADDiff128x128
