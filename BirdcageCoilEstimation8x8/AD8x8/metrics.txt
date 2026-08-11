@@ -1,0 +1,7 @@
+method = AD
+final_loss = 2.3168702e-10
+relative_density_error = 8.332153e-6
+center_to_support_ratio = 0.9999958
+direct_projection_residual = 0.0037110187
+conjugate_projection_residual = 0.99949545
+physical_center_to_edge_coil_norm = 0.8674281
