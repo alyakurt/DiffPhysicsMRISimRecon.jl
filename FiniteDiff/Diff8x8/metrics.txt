@@ -1,0 +1,7 @@
+method = FiniteDiff
+final_loss = 0.0004835385
+relative_data_reduction = 0.6560421
+gradient_relative_error = 3.469954e-5
+density_extrema = (0.0f0, 1.2560842f-5)
+center_mean = 7.4298455e-6
+display_range = (0.0f0, 2.0f-5)

@@ -4,5 +4,5 @@ using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 Pkg.instantiate()
 
-include("reconstruct.jl")
-run_finite_difference_reconstruction((8, 8, 1))
+include(joinpath(@__DIR__, "..", "reconstruct_8x8.jl"))
+MeasuredSense8x8.run(:FiniteDiff, joinpath(@__DIR__, "Diff8x8"))
