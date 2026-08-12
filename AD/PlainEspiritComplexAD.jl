@@ -2,6 +2,7 @@ module PlainEspiritComplexAD128
 
 using Enzyme
 using KomaMRI
+using KomaMRIPlots
 using LinearAlgebra: dot, norm
 using MRICoilSensitivities: espirit
 using Reactant
@@ -183,6 +184,146 @@ function save_magnitude(
     nothing
 end
 
+function save_loss_convergence(losses, name, output_directory)
+    plotly = KomaMRIPlots.PlotlyBase
+    losses = losses[1:min(length(losses), 6)]
+    iterations = 0:(length(losses) - 1)
+    case_title = name == "FullySampled128x128" ?
+        "Fully sampled - 128 × 128" : "Accelerated R = 2 - 128 × 128"
+    scaled_losses = 1e4 .* losses
+    loss_labels = string.(round.(scaled_losses; digits=4))
+    line_trace = plotly.scatter(;
+        x=iterations,
+        y=scaled_losses,
+        mode="lines",
+        name="Optimization trajectory",
+        legendrank=2,
+        line=plotly.attr(; color="#D84A5B", width=4),
+        hoverinfo="skip",
+    )
+    point_trace = plotly.scatter(;
+        x=iterations,
+        y=scaled_losses,
+        customdata=losses,
+        mode="markers",
+        name="Loss at each iteration",
+        legendrank=1,
+        marker=plotly.attr(;
+            color="#14877C",
+            size=10,
+            line=plotly.attr(; color="white", width=1.5),
+        ),
+        hovertemplate="Iteration %{x}<br>Loss = %{customdata:.6e}<extra></extra>",
+    )
+    final_trace = plotly.scatter(;
+        x=[last(iterations)],
+        y=[last(scaled_losses)],
+        mode="markers",
+        marker=plotly.attr(;
+            symbol="circle-open",
+            color="#374151",
+            size=20,
+            line=plotly.attr(; color="#374151", width=3),
+        ),
+        hoverinfo="skip",
+        showlegend=false,
+    )
+    label_shifts = map(
+        loss -> loss < 0.08 * maximum(scaled_losses) ? 18 : -18,
+        scaled_losses[1:(end - 1)],
+    )
+    annotations = [plotly.attr(;
+        xref="x",
+        yref="y",
+        x=iteration,
+        y=loss,
+        text=label,
+        showarrow=false,
+        xanchor=iteration == first(iterations) ? "left" : "center",
+        yanchor=shift < 0 ? "top" : "bottom",
+        yshift=shift,
+        font=plotly.attr(; family="Arial", size=13, color="#3F4650"),
+    ) for (iteration, loss, label, shift) in
+         zip(iterations[1:(end - 1)], scaled_losses[1:(end - 1)], loss_labels[1:(end - 1)], label_shifts)]
+    push!(annotations, plotly.attr(;
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=1.01,
+        text="<b>Complex AD Loss Convergence</b><br><span style='font-size:18px'>$(case_title)</span>",
+        showarrow=false,
+        xanchor="center",
+        yanchor="bottom",
+        align="center",
+        font=plotly.attr(; family="Arial", size=28, color="#202124"),
+    ))
+    push!(annotations, plotly.attr(;
+        x=last(iterations),
+        y=last(scaled_losses),
+        text="Iteration $(last(iterations))<br><b>loss = $(last(loss_labels)) × 10<sup>-4</sup></b>",
+        showarrow=true,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=2,
+        arrowcolor="#374151",
+        ax=-145,
+        ay=-75,
+        align="left",
+        bgcolor="rgba(255,255,255,0.92)",
+        borderpad=4,
+        font=plotly.attr(; family="Arial", size=15, color="#1F2937"),
+    ))
+    layout = plotly.Layout(;
+        font=plotly.attr(; family="Arial", size=18, color="#202124"),
+        margin=plotly.attr(; l=115, r=45, t=155, b=90),
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        legend=plotly.attr(;
+            x=0.985,
+            y=0.985,
+            xanchor="right",
+            yanchor="top",
+            bgcolor="rgba(255,255,255,0.94)",
+            bordercolor="#C7CBD1",
+            borderwidth=1,
+            font=plotly.attr(; size=15),
+        ),
+        xaxis=plotly.attr(;
+            title=plotly.attr(; text="Optimization iteration, <i>k</i>", standoff=15),
+            range=[-0.75, last(iterations) + 0.75],
+            nticks=6,
+            showline=true,
+            mirror=true,
+            ticks="outside",
+            ticklen=6,
+            linecolor="#7A7F87",
+            gridcolor="#C9CDD2",
+            gridwidth=1,
+            zeroline=false,
+        ),
+        yaxis=plotly.attr(;
+            title=plotly.attr(;
+                text="Loss, <i>L</i><sub>k</sub> (×10<sup>-4</sup>)",
+                standoff=12,
+            ),
+            range=[0, 1.18 * maximum(scaled_losses)],
+            showline=true,
+            mirror=true,
+            ticks="outside",
+            ticklen=6,
+            linecolor="#7A7F87",
+            gridcolor="#C9CDD2",
+            gridwidth=1,
+            zeroline=false,
+        ),
+        annotations,
+    )
+    figure = plotly.Plot([line_trace, point_trace, final_trace], layout)
+    savefig(figure, joinpath(output_directory, "loss_convergence.png"); width=1100, height=820, scale=2)
+    savefig(figure, joinpath(output_directory, "loss_convergence.pdf"); width=1100, height=820)
+    nothing
+end
+
 function read_image(filename)
     image = Vector{ComplexF32}(undef, prod(RECON_SIZE))
     open(filename) do io
@@ -207,10 +348,12 @@ function run_case(name; accelerated, iterations=ITERATIONS)
     gradient_error < 2f-3 || error("Complex AD gradient check failed: $gradient_error")
 
     data_norm = sum(abs2, model.data)
+    losses = Float64[Reactant.to_number(loss)]
     x = zero_image
     for iteration in 1:iterations
         x = x .- step .* gradient
         loss, gradient = compiled_gradient(x, device_model)
+        push!(losses, Reactant.to_number(loss))
         image = Array(x)
         stem = "iteration_$(lpad(iteration, 2, '0'))"
         save_magnitude(
@@ -222,11 +365,12 @@ function run_case(name; accelerated, iterations=ITERATIONS)
         open(joinpath(output_directory, "$stem.cf32"), "w") do io
             write(io, image)
         end
-        println("$name iteration $iteration: loss = $(Reactant.to_number(loss))")
+        println("$name iteration $iteration: loss = $(last(losses))")
     end
 
     image = Array(x)
-    final_loss = Reactant.to_number(loss)
+    final_loss = last(losses)
+    save_loss_convergence(losses, name, output_directory)
     save_magnitude(
         image,
         "reconstructed_magnitude.png",
