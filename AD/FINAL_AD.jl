@@ -5,8 +5,9 @@ using MRICoilSensitivities: espirit
 using Reactant
 
 const IMAGE_SIZE = (128, 128)
-const ITERATIONS = 20
+const ITERATIONS = 80
 const STEP_SIZE = 2f-5
+const RELAXATION_STEP_SIZE = 1f3
 const NAVIGATORS = 3
 const DATA_DIRECTORY = isempty(ARGS) ? joinpath(homedir(), "Desktop/Archive (1)") : first(ARGS)
 const OUTPUT_DIRECTORY = joinpath(@__DIR__, "FINAL_AD")
@@ -62,22 +63,26 @@ function load_problem()
     (; object=Reactant.to_rarray(object), sequence, scanner, sim_params, image_samples, b=Reactant.to_rarray(b))
 end
 
-function A(x, params)
+function A(x, T1, T2, params)
     object = copy(params.object)
-    object.ρ .= x
-    signal = simulate(object, params.sequence, params.scanner; sim_params=params.sim_params, verbose=false)
-    return signal[params.image_samples, :, 1]
+    object.T1 .= T1
+    object.T2 .= T2
+    object.ρ .= real.(x)
+    real_signal = simulate(object, params.sequence, params.scanner; sim_params=params.sim_params, verbose=false)
+    object.ρ .= imag.(x)
+    imaginary_signal = simulate(object, params.sequence, params.scanner; sim_params=params.sim_params, verbose=false)
+    return real_signal[params.image_samples, :, 1] .+ ComplexF32(0, 1) .* imaginary_signal[params.image_samples, :, 1]
 end
 
-f(x, params) = sum(abs2, A(x, params) - params.b)
+f(x, T1, T2, params) = sum(abs2, A(x, T1, T2, params) - params.b)
 
-function f_and_gradient(x, params)
-    result = Enzyme.gradient(Enzyme.ReverseWithPrimal, f, x, Enzyme.Const(params))
-    result.val, result.derivs[1]
+function f_and_gradient(x, T1, T2, params)
+    result = Enzyme.gradient(Enzyme.ReverseWithPrimal, f, x, T1, T2, Enzyme.Const(params))
+    result.val, result.derivs[1], result.derivs[2], result.derivs[3]
 end
 
 function save_iteration(x, iteration)
-    image = reshape(Array(x), IMAGE_SIZE)
+    image = reshape(abs.(Array(x)), IMAGE_SIZE)
     figure = plot_image(image; title="AD iteration $iteration")
     savefig(figure, joinpath(OUTPUT_DIRECTORY, "iteration_$(lpad(iteration, 2, '0')).png"))
 end
@@ -86,24 +91,32 @@ function run_final_ad()
     total_start = time_ns()
     mkpath(OUTPUT_DIRECTORY)
     params = load_problem()
-    x = Reactant.to_rarray(zeros(Float32, prod(IMAGE_SIZE)))
+    x = Reactant.to_rarray(zeros(ComplexF32, prod(IMAGE_SIZE)))
+    T1 = Reactant.to_rarray(Float32[1])
+    T2 = Reactant.to_rarray(Float32[1])
 
     compile_start = time_ns()
-    gradient = Reactant.@compile sync=true f_and_gradient(x, params)
+    gradient = Reactant.@compile sync=true f_and_gradient(x, T1, T2, params)
     compile_seconds = (time_ns() - compile_start) / 1e9
 
     losses = Float64[]
+    relaxation_values = Tuple{Float32,Float32}[]
     optimization_start = time_ns()
     for iteration in 0:ITERATIONS
-        value, ∇f = gradient(x, params)
+        value, ∇f, ∇T1, ∇T2 = gradient(x, T1, T2, params)
         push!(losses, Reactant.to_number(value))
+        push!(relaxation_values, (only(Array(T1)), only(Array(T2))))
         save_iteration(x, iteration)
-        println("iteration=$iteration loss=$(last(losses))")
-        iteration == ITERATIONS || (x = max.(x .- STEP_SIZE .* ∇f, 0f0))
+        println("iteration=$iteration loss=$(last(losses)) T1=$(last(relaxation_values)[1]) T2=$(last(relaxation_values)[2])")
+        if iteration != ITERATIONS
+            x = x .- STEP_SIZE .* ∇f
+            T1 = max.(T1 .- RELAXATION_STEP_SIZE .* ∇T1, eps(Float32))
+            T2 = max.(T2 .- RELAXATION_STEP_SIZE .* ∇T2, eps(Float32))
+        end
     end
     optimization_seconds = (time_ns() - optimization_start) / 1e9
 
-    rows = ["iteration,loss"; ["$iteration,$(losses[iteration + 1])" for iteration in 0:ITERATIONS]]
+    rows = ["iteration,loss,T1,T2"; ["$iteration,$(losses[iteration + 1]),$(relaxation_values[iteration + 1][1]),$(relaxation_values[iteration + 1][2])" for iteration in 0:ITERATIONS]]
     write(joinpath(OUTPUT_DIRECTORY, "loss.csv"), join(rows, '\n') * "\n")
     total_seconds = (time_ns() - total_start) / 1e9
     println("compile_seconds=$compile_seconds optimization_seconds=$optimization_seconds total_seconds=$total_seconds")
