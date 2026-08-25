@@ -82,7 +82,7 @@ function f_and_gradient(x, T1, T2, params)
 end
 
 function save_iteration(x, iteration)
-    image = reshape(abs.(Array(x)), IMAGE_SIZE)
+    image = reverse(reshape(abs.(Array(x)), IMAGE_SIZE); dims=1)
     figure = plot_image(image; title="AD iteration $iteration")
     savefig(figure, joinpath(OUTPUT_DIRECTORY, "iteration_$(lpad(iteration, 2, '0')).png"))
 end
