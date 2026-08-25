@@ -1,0 +1,13 @@
+comparison = fully sampled AD versus fully sampled MRIReco SENSE
+acquisition = 128x128 fully sampled EPI, 12 receive coils
+forward_model = shared fully sampled KomaMRI Bloch operator
+T1_seconds = 0.07040096
+T2_seconds = 0.19664721
+AD_metric = ||A(x_AD)-b||^2 / ||b||^2
+MRIReco_metric = min_alpha ||alpha*A(x_MRIReco)-b||^2 / ||b||^2
+AD_normalized_squared_residual = 0.006452273011913438
+MRIReco_normalized_squared_residual = 0.065648645
+MRIReco_optimal_complex_scale = 0.02880475f0 - 1.0752729f0im
+MRIReco_orientation = identity
+MRIReco_conjugated = false
+MRIReco_to_AD_residual_ratio = 10.174498977549328
