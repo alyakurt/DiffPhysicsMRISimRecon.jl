@@ -1,0 +1,22 @@
+method = measured multi-echo spin-echo EPI reconstruction followed by node-wise AD mono-exponential fitting
+parameter = approximate T2
+resolution = 128x128
+image_node_type = ComplexF32
+relaxation_node_type = Float32 seconds
+echo_times_ms = Float32[11.028, 38.468, 55.406002, 104.686]
+image_iterations_per_echo = 40
+fit_iterations = 500
+initial_fit_loss = 0.08425233513116837
+final_fit_loss = 0.012949868105351925
+relative_fit_loss_reduction = 0.8462966268508653
+fit_gradient_relative_error = 8.654383e-5
+support_nodes = 6321
+support_threshold_fraction = 0.05
+supported_t2_extrema_ms = (18.230288f0, 216.05832f0)
+supported_t2_median_ms = 61.35668605566025
+median_relative_fit_residual = 0.0832565575838089
+limitation = acquisitions use different EPI shot and acceleration patterns; EPI distortion, T2-star readout blurring, and inter-scan motion can bias the fitted T2
+echo_time_ms = 11.028, samples_per_coil = 16384, complete_averages = 4, image_final_loss = 1.0513657798583154e-5, gradient_relative_error = 9.050485e-8, measured_data = /Users/alyakurt/Desktop/Archive (1)/mrd_hdf5/meas_MID01094_FID34194_hard_epi_20interleaves_5avg_fatsat.mrd
+echo_time_ms = 38.468, samples_per_coil = 5504, complete_averages = 10, image_final_loss = 7.864741178309487e-7, gradient_relative_error = 9.178846e-8, measured_data = /Users/alyakurt/Desktop/Archive (1)/mrd_hdf5/meas_MID01092_FID34192_hard_epi_accel3_one_set_fatsat.mrd
+echo_time_ms = 55.406002, samples_per_coil = 8192, complete_averages = 10, image_final_loss = 1.8680681250771158e-6, gradient_relative_error = 9.417799e-8, measured_data = /Users/alyakurt/Desktop/Archive (1)/mrd_hdf5/meas_MID01091_FID34191_hard_epi_accel2_one_set_fatsat.mrd
+echo_time_ms = 104.686, samples_per_coil = 16384, complete_averages = 10, image_final_loss = 2.855050752259558e-6, gradient_relative_error = 9.0159766e-8, measured_data = /Users/alyakurt/Desktop/Archive (1)/mrd_hdf5/meas_MID01093_FID34193_hard_epi_1shot_fatsat.mrd
