@@ -1,0 +1,22 @@
+method = reverse-mode AD with projected gradient descent and backtracking line search
+parameter = T1
+parameterization = one T1 value at each image-reconstruction node
+image_node_type = ComplexF32
+relaxation_node_type = Float32 seconds
+node_grid = 128x128
+node_count = 16384
+fixed_complex_density_nodes = /Users/alyakurt/Desktop/DiffPhysicsMRISimRecon.jl/AD/PlainEspiritComplexAD/AcceleratedR2_128x128/reconstructed_image.cf32
+target_data = synthetic multi-contrast ComplexF32 signal generated directly from the accelerated complex-image nodes
+truth_map = deterministic relaxation values derived from the complex-node magnitude for an AD recovery experiment
+forward_model = image-reconstruction nodes -> quantitative contrast -> ESPIRiT coils -> accelerated R=2 Cartesian Fourier samples
+iterations = 200
+contrasts = 8
+contrast_times_seconds = Float32[0.05, 0.1, 0.2, 0.4, 0.8, 1.5, 2.5, 4.0]
+initial_loss = 0.30131906270980835
+final_loss = 0.0005307107348926365
+relative_loss_reduction = 0.998238708397272
+gradient_relative_error = 0.0005544568
+relative_node_map_error = 0.23790473
+truth_range_seconds = (0.35f0, 2.4999752f0)
+final_step_size = 208.74742
+relaxation_limits_seconds = (0.2f0, 3.0f0)
