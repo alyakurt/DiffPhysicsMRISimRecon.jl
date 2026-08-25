@@ -1,0 +1,10 @@
+method = L-BFGS-B with reverse-mode AD gradient
+resolution = 128x128
+iterations = 20
+converged = false
+initial_loss = 0.0014058073
+final_loss = 0.000347157969372347
+relative_data_reduction = 0.7530543749797632
+gradient_relative_error = 8.529635e-8
+density_extrema = (0.0f0, 1.8228433f-5)
+display_range = (0.0f0, 2.0f-5)
