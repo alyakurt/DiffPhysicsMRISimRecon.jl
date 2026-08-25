@@ -1,0 +1,9 @@
+experiment = openMOLLIst T1 optimization through KomaMRI.simulate
+raw_data = meas_MID00420_FID37841_openMOLLIst.dat
+sequence = OpenMOLLI_LCD_S.seq
+iterations = 80
+image_R_peak_indices = [1, 2, 3, 4, 5, 9, 10, 11]
+initial_loss = 0.2619274920558021
+final_loss = 0.08238021008108122
+map_size = 192x144
+supported_pixels = 14074
