@@ -8,8 +8,9 @@ const IMAGE_SIZE = (128, 128)
 const ITERATIONS = 80
 const STEP_SIZE = 2f-5
 const RELAXATION_STEP_SIZE = 1f3
-const NAVIGATORS = 3
-const DATA_DIRECTORY = isempty(ARGS) ? joinpath(homedir(), "Desktop/Archive (1)") : first(ARGS)
+const NAVIGATORS = 0
+const DATA_DIRECTORY = isempty(ARGS) ?
+    joinpath(homedir(), "Desktop/Data/cleaner brain data acq 21 august") : first(ARGS)
 const OUTPUT_DIRECTORY = joinpath(@__DIR__, "FINAL_AD")
 
 Reactant.set_default_backend("cpu")
@@ -18,14 +19,13 @@ Reactant.allowscalar(false)
 centered_axis(width, count) = Float32.(range(-width / 2 + width / (2count); step=width / count, length=count))
 
 function load_problem()
-    reference_path = joinpath(DATA_DIRECTORY, "mrd_hdf5/meas_MID01094_FID34194_hard_epi_20interleaves_5avg_fatsat.mrd")
-    measured_path = joinpath(DATA_DIRECTORY, "mrd_hdf5/meas_MID01109_FID34203_hard_epi_2x_20interleaves_5avg_fatsat.mrd")
-    sequence_path = joinpath(DATA_DIRECTORY, "seq/hard_epi_2x_20interleaves_5avg_fatsat.seq")
+    reference_path = joinpath(DATA_DIRECTORY, "brain_gre_3t_acc/meas_MID00488_FID42180_gaussian_fatsat.mrd")
+    measured_path = joinpath(DATA_DIRECTORY, "brain_gre_3t_acc/meas_MID00489_FID42181_gaussian_fatsat_2x.mrd")
+    sequence_path = joinpath(DATA_DIRECTORY, "bssfp_slice_gaussian_R2.seq")
 
     sequence = resolve_triggers(read_seq(sequence_path), CardiacSignal(; heart_rate=1))
-    shots = Int(sequence.DEF["EpiShots"])
-    acquired_shots = parse.(Int, split(sequence.DEF["EpiAcquiredShots"], ',')) .- 1
-    image_profiles = sum(length(shot:shots:(IMAGE_SIZE[2] - 1)) for shot in acquired_shots)
+    adc_blocks = findall(block -> is_ADC_on(sequence[block]), eachindex(sequence.DUR))
+    image_profiles = length(adc_blocks) - NAVIGATORS
 
     raw_reference = RawAcquisitionData(ISMRMRDFile(reference_path))
     fov = Float32.(raw_reference.params["reconFOV"]) .* 1f-3
@@ -38,7 +38,6 @@ function load_problem()
     measured.profiles = measured.profiles[(NAVIGATORS + 1):(NAVIGATORS + image_profiles)]
     b = reduce(vcat, ComplexF32.(profile.data) for profile in measured.profiles)
 
-    adc_blocks = findall(block -> is_ADC_on(sequence[block]), eachindex(sequence.DUR))
     sequence = sequence[1:adc_blocks[NAVIGATORS + image_profiles]]
     samples_per_profile = size(first(measured.profiles).data, 1)
     first_image_sample = NAVIGATORS * samples_per_profile + 1
