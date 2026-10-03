@@ -1,189 +1,134 @@
-using Enzyme
-using Interpolations: Flat, linear_interpolation
-using KomaMRI
-using KomaMRIPlots
-using Reactant
-
-const IMAGE_SIZE = (128, 128)
-const ITERATIONS = 80
-const STEP_SIZE = 2f-5
-const RELAXATION_STEP_SIZE = 1f3
-const NAVIGATORS = 0
-const DATA_DIRECTORY = isempty(ARGS) ?
-    joinpath(homedir(), "Desktop/Data/cleaner brain data acq 21 august") : first(ARGS)
-const OUTPUT_DIRECTORY = joinpath(@__DIR__, "FINAL_AD")
-
+using Enzyme, KomaMRI, KomaMRIPlots, Reactant
+using MRICoilSensitivities: espirit
 Reactant.set_default_backend("cpu")
 Reactant.allowscalar(false)
 
-centered_axis(width, count) = Float32.(range(-width / 2 + width / (2count); step=width / count, length=count))
-centered_fft(data) = KomaMRI.fftshift(KomaMRI.fft(KomaMRI.ifftshift(data, (1, 2, 3)), (1, 2, 3)), (1, 2, 3))
-centered_ifft(data) = KomaMRI.fftshift(KomaMRI.ifft(KomaMRI.ifftshift(data, (1, 2, 3)), (1, 2, 3)), (1, 2, 3))
+centered_axis(width, count) =
+    Float32.(range(-width / 2 + width / (2count); step=width / count, length=count))
 
-function prescan_images(profiles)
-    readout = Int(first(profiles).head.number_of_samples)
-    phase_count = maximum(Int(profile.head.idx.kspace_encode_step_1) for profile in profiles) + 1
-    partition_count = maximum(Int(profile.head.idx.kspace_encode_step_2) for profile in profiles) + 1
-    kspace = zeros(ComplexF32, readout, phase_count, partition_count, size(first(profiles).data, 2))
-    for profile in profiles
-        phase = Int(profile.head.idx.kspace_encode_step_1) + 1
-        partition = Int(profile.head.idx.kspace_encode_step_2) + 1
-        kspace[:, phase, partition, :] .= profile.data
-    end
-    centered_ifft(kspace)
+function estimate_coils(path, measured, x, y; floor=1f-2, regularization=1f-4)
+    raw = RawAcquisitionData(ISMRMRDFile(path))
+    names = getproperty.(raw.params["coilLabel"], :name)
+    order = [only(findall(==(name), names)) for name in getproperty.(measured.params["coilLabel"], :name)]
+    readout = raw.params["encodedSize"][1]
+    surface = filter(p -> p.head.active_channels == length(names) && p.head.number_of_samples == readout, raw.profiles)
+    body = filter(p -> p.head.active_channels == 2 && p.head.number_of_samples == readout, raw.profiles)
+    raw.profiles = surface
+    ky = [p.head.idx.kspace_encode_step_1 for p in raw.profiles]
+    kz = [p.head.idx.kspace_encode_step_2 for p in raw.profiles]
+    raw.params["encodedSize"] = [readout, maximum(ky) + 1, maximum(kz) + 1]
+    calibration = AcquisitionData(raw)
+    body_calibration = AcquisitionData(RawAcquisitionData(raw.params, body))
+    calibration.traj[1].circular = body_calibration.traj[1].circular = false
+    map_size = (readout, raw.params["reconSize"][2], raw.params["reconSize"][3])
+    maps = espirit(calibration, (4, 4, 4), 16, map_size; eigThresh_1=0.02, eigThresh_2=0.0)[:, :, :, order]
+    direct = Dict{Symbol,Any}(:reco => "direct", :reconSize => map_size)
+    image_rss(acq) = dropdims(sqrt.(sum(abs2, reconstruction(acq, direct); dims=5)); dims=(4, 5, 6))
+    surface_rss, body_rss = image_rss(calibration), image_rss(body_calibration)
+    scale = surface_rss .* body_rss ./ (body_rss .^ 2 .+ regularization * maximum(body_rss)^2)
+    scale ./= maximum(scale)
+    adjustment = first(raw.profiles).head
+    imaging = first(measured.profiles).head
+    basis = hcat(Float32[adjustment.read_dir...], Float32[adjustment.phase_dir...], Float32[adjustment.slice_dir...])
+    position =
+        Float32[imaging.position...] .+ 1000f0 .* Float32[imaging.read_dir...] .* x' .+
+        1000f0 .* Float32[imaging.phase_dir...] .* y'
+    coordinates = basis' * (position .- Float32[adjustment.position...])
+    axes = Tuple(centered_axis.(Float32.(raw.params["encodedFOV"]), map_size))
+    receiver = ArbitraryCoilSens(axes..., maps)
+    values = ComplexF32.(get_sens(receiver, coordinates[1, :], coordinates[2, :], coordinates[3, :]))
+    intensity = real.(get_sens(
+        ArbitraryCoilSens(axes..., reshape(ComplexF32.(scale), map_size..., 1)),
+        coordinates[1, :],
+        coordinates[2, :],
+        coordinates[3, :]
+    ))
+    rss = sqrt.(sum(abs2, values; dims=2))
+    intensity .* values ./ max.(rss, floor * maximum(rss))
 end
 
-function isotropic_prescan(image)
-    source_size = size(image)
-    target_size = (source_size[1], 2source_size[2], 2source_size[3])
-    target = zeros(ComplexF32, target_size)
-    phase = (fld(source_size[2], 2) + 1):(fld(source_size[2], 2) + source_size[2])
-    partition = (fld(source_size[3], 2) + 1):(fld(source_size[3], 2) + source_size[3])
-    position = range(0f0, 1f0; length=source_size[2])
-    window = Float32[x < 0.25f0 || x > 0.75f0 ? 0.5f0 * (1 - cospi(4x)) : 1 for x in position]
-    target[:, phase, partition] .= centered_fft(image) .* reshape(window, 1, :, 1) .* reshape(window, 1, 1, :)
-    oversampled = centered_ifft(target)
-    readout = (fld(target_size[1], 4) + 1):(target_size[1] - fld(target_size[1], 4))
-    Array(@view oversampled[readout, :, :])
-end
-
-function adjustment_sensitivity_maps(path, imaging, map_x, map_y; sensitivity_floor=1f-2)
-    adjustment = RawAcquisitionData(ISMRMRDFile(path))
-    adjustment_names = getproperty.(adjustment.params["coilLabel"], :name)
-    imaging_names = getproperty.(imaging.params["coilLabel"], :name)
-    channels = [only(findall(==(name), adjustment_names)) for name in imaging_names]
-    profiles = filter(
-        profile -> profile.head.active_channels == length(adjustment_names) && profile.head.number_of_samples == 128,
-        adjustment.profiles,
-    )
-    images = prescan_images(profiles)
-    volumes = cat((isotropic_prescan(@view images[:, :, :, channel]) for channel in channels)...; dims=4)
-    rss = sqrt.(sum(abs2, volumes; dims=4))
-    volumes ./= max.(rss, sensitivity_floor * maximum(rss))
-
-    volume_axes = Tuple(map(centered_axis, Float32.(adjustment.params["reconFOV"]), size(volumes)[1:3]))
-    adjustment_position = Float32[first(profiles).head.position...]
-    adjustment_directions = hcat(
-        Float32[first(profiles).head.read_dir...],
-        Float32[first(profiles).head.phase_dir...],
-        Float32[first(profiles).head.slice_dir...],
-    )
-    imaging_position = Float32[first(imaging.profiles).head.position...]
-    imaging_read = Float32[first(imaging.profiles).head.read_dir...]
-    imaging_phase = Float32[first(imaging.profiles).head.phase_dir...]
-    maps = cat((
-        let interpolation = linear_interpolation(volume_axes, @view(volumes[:, :, :, channel]); extrapolation_bc=Flat())
-            [interpolation((adjustment_directions' * (imaging_position .+ 1000x .* imaging_read .+ 1000y .* imaging_phase .- adjustment_position))...) for x in map_x, y in map_y]
-        end for channel in axes(volumes, 4)
-    )...; dims=3)
-    maps = reverse(reshape(ComplexF32.(maps), length(map_x), length(map_y), 1, length(channels)); dims=1)
-    rss = sqrt.(sum(abs2, maps; dims=4))
-    maps ./ max.(rss, sensitivity_floor * maximum(rss))
-end
-
-function load_problem()
-    measured_path = joinpath(DATA_DIRECTORY, "brain_gre_3t_acc/meas_MID00492_FID42184_bssfp_optimized_2x.mrd")
-    adjustment_path = joinpath(DATA_DIRECTORY, "brain_gre_3t_acc/meas_MID00478_FID42170_AdjCoilSens.mrd")
-    sequence_path = joinpath(DATA_DIRECTORY, "bssfp_slice_all_adc_optimized_R2.seq")
-
+function load_problem(data_directory, image_size)
+    measured_path = joinpath(data_directory, "brain_gre_3t_acc/meas_MID00492_FID42184_bssfp_optimized_2x.mrd")
+    adjustment_path = joinpath(data_directory, "brain_gre_3t_acc/meas_MID00478_FID42170_AdjCoilSens.mrd")
+    sequence_path = joinpath(data_directory, "bssfp_slice_all_adc_optimized_R2.seq")
     sequence = resolve_triggers(read_seq(sequence_path), CardiacSignal(; heart_rate=1))
-    adc_blocks = findall(block -> is_ADC_on(sequence[block]), eachindex(sequence.DUR))
-    image_profiles = length(adc_blocks) - NAVIGATORS
-
+    adc = findall(block -> is_ADC_on(sequence[block]), eachindex(sequence.DUR))
     measured = RawAcquisitionData(ISMRMRDFile(measured_path))
+    length(measured.profiles) == length(adc) || error("Measured profiles do not match sequence ADCs")
+    target = reduce(vcat, ComplexF32.(profile.data) for profile in measured.profiles)
     fov = Float32.(measured.params["reconFOV"]) .* 1f-3
-    map_x = collect(LinRange(-fov[1] / 2, fov[1] / 2, IMAGE_SIZE[1]))
-    map_y = collect(LinRange(-fov[2] / 2, fov[2] / 2, IMAGE_SIZE[2]))
-    maps = adjustment_sensitivity_maps(adjustment_path, measured, map_x, map_y)
-    measured.profiles = measured.profiles[(NAVIGATORS + 1):(NAVIGATORS + image_profiles)]
-    b = reduce(vcat, ComplexF32.(profile.data) for profile in measured.profiles)
-
-    sequence = sequence[1:adc_blocks[NAVIGATORS + image_profiles]]
-    samples_per_profile = size(first(measured.profiles).data, 1)
-    first_image_sample = NAVIGATORS * samples_per_profile + 1
-    image_samples = first_image_sample:(first_image_sample + size(b, 1) - 1)
-
-    x_axis, y_axis = centered_axis.(fov[1:2], IMAGE_SIZE)
-    spin_x = repeat(x_axis, IMAGE_SIZE[2])
-    spin_y = repeat(y_axis; inner=IMAGE_SIZE[1])
-    spin_z = zeros(Float32, prod(IMAGE_SIZE))
-
-    map_z = Float32[-fov[3] / 2, 0, fov[3] / 2]
-    receiver = ArbitraryCoilSens(map_x, map_y, map_z, repeat(maps, 1, 1, length(map_z), 1))
-    coil_values = ComplexF32.(get_sens(receiver, spin_x, spin_y, spin_z))
-    spin_x = vcat(spin_x, spin_x)
-    spin_y = vcat(spin_y, spin_y)
-    spin_z = vcat(spin_z, spin_z)
-    coil_values = vcat(coil_values, ComplexF32(0, 1) .* coil_values)
-    count = length(spin_x)
-    relaxation = fill(1f0, count)
-    object = Phantom(; x=spin_x, y=spin_y, z=spin_z, ρ=ones(Float32, count), T1=relaxation, T2=relaxation, T2s=relaxation)
-    scanner = Scanner(; receiver=KomaMRICore.CoilSensitivities(Reactant.to_rarray(coil_values), nothing))
-    sim_params = Dict{String,Any}("sim_method" => Bloch(), "gpu" => true, "Nthreads" => 1, "return_type" => "mat", "precision" => "f32")
-
-    (; object=Reactant.to_rarray(object), sequence, scanner, sim_params, image_samples, b=Reactant.to_rarray(b))
+    x_axis, y_axis = centered_axis.(fov[1:2], image_size)
+    x = repeat(x_axis, image_size[2])
+    y = repeat(y_axis; inner=image_size[1])
+    z = zeros(Float32, prod(image_size))
+    coils = estimate_coils(adjustment_path, measured, x, y)
+    object = Phantom(;
+        x=vcat(x, x),
+        y=vcat(y, y),
+        z=vcat(z, z),
+        ρ=ones(Float32, 2length(x)),
+        T1=ones(Float32, 2length(x)),
+        T2=ones(Float32, 2length(x)),
+        T2s=ones(Float32, 2length(x))
+    )
+    receiver = vcat(coils, ComplexF32(0, 1) .* coils)
+    scanner = Scanner(; receiver=KomaMRICore.CoilSensitivities(Reactant.to_rarray(receiver), nothing))
+    sim = Dict{String,Any}(
+        "sim_method" => Bloch(),
+        "gpu" => true,
+        "Nthreads" => 1,
+        "return_type" => "mat",
+        "precision" => "f32"
+    )
+    (; object=Reactant.to_rarray(object), sequence=sequence[1:last(adc)], scanner, sim, b=Reactant.to_rarray(target))
 end
 
-function A(x, T1, T2, params)
-    object = copy(params.object)
+function A(x, T1, T2, p)
+    object = copy(p.object)
     object.T1 .= T1
     object.T2 .= T2
     object.ρ .= vcat(real.(x), imag.(x))
-    signal = simulate(object, params.sequence, params.scanner; sim_params=params.sim_params, verbose=false)
-    signal[params.image_samples, :, 1]
+    simulate(object, p.sequence, p.scanner; sim_params=p.sim, verbose=false)[:, :, 1]
 end
 
-f(x, T1, T2, params) = sum(abs2, A(x, T1, T2, params) - params.b)
-
-function f_and_gradient(x, T1, T2, params)
-    result = Enzyme.gradient(Enzyme.ReverseWithPrimal, f, x, T1, T2, Enzyme.Const(params))
+loss(x, T1, T2, p) = sum(abs2, A(x, T1, T2, p) - p.b)
+function loss_gradient(x, T1, T2, p)
+    result = Enzyme.gradient(Enzyme.ReverseWithPrimal, loss, x, T1, T2, Enzyme.Const(p))
     result.val, result.derivs[1], result.derivs[2], result.derivs[3]
 end
 
-function save_iteration(x, iteration)
-    image = reverse(reshape(abs.(Array(x)), IMAGE_SIZE); dims=1)
-    figure = plot_image(image; title="AD iteration $iteration")
-    savefig(figure, joinpath(OUTPUT_DIRECTORY, "iteration_$(lpad(iteration, 2, '0')).png"))
-end
-
-function run_final_ad()
-    total_start = time_ns()
-    mkpath(OUTPUT_DIRECTORY)
-    params = load_problem()
-    x = Reactant.to_rarray(zeros(ComplexF32, prod(IMAGE_SIZE)))
-    T1 = Reactant.to_rarray(Float32[1])
-    T2 = Reactant.to_rarray(Float32[1])
-
-    compile_start = time_ns()
-    gradient = Reactant.@allowscalar Reactant.compile(
-        f_and_gradient,
-        (x, T1, T2, params);
-        sync=true,
-    )
-    compile_seconds = (time_ns() - compile_start) / 1e9
-
-    losses = Float64[]
-    relaxation_values = Tuple{Float32,Float32}[]
-    optimization_start = time_ns()
-    for iteration in 0:ITERATIONS
-        value, ∇f, ∇T1, ∇T2 = gradient(x, T1, T2, params)
-        push!(losses, Reactant.to_number(value))
-        push!(relaxation_values, (only(Array(T1)), only(Array(T2))))
-        save_iteration(x, iteration)
-        println("iteration=$iteration loss=$(last(losses)) T1=$(last(relaxation_values)[1]) T2=$(last(relaxation_values)[2])")
-        if iteration != ITERATIONS
-            x = x .- STEP_SIZE .* ∇f
-            T1 = max.(T1 .- RELAXATION_STEP_SIZE .* ∇T1, eps(Float32))
-            T2 = max.(T2 .- RELAXATION_STEP_SIZE .* ∇T2, eps(Float32))
-        end
+function run_final_ad(;
+    image_size=(128, 128),
+    iterations=80,
+    step=2f-5,
+    relaxation_step=1f3,
+    data_directory=isempty(ARGS) ?
+        joinpath(homedir(), "Desktop/Data/cleaner brain data acq 21 august") : first(ARGS),
+    output_directory=joinpath(@__DIR__, "FINAL_AD")
+)
+    mkpath(output_directory)
+    p = load_problem(data_directory, image_size)
+    x = Reactant.to_rarray(zeros(ComplexF32, prod(image_size)))
+    T1, T2 = Reactant.to_rarray(Float32[1]), Reactant.to_rarray(Float32[1])
+    gradient = Reactant.@allowscalar Reactant.compile(loss_gradient, (x, T1, T2, p); sync=true)
+    rows = ["iteration,loss,T1,T2"]
+    for iteration in 0:iterations
+        value, ∇x, ∇T1, ∇T2 = gradient(x, T1, T2, p)
+        value, t1, t2 = Reactant.to_number(value), only(Array(T1)), only(Array(T2))
+        push!(rows, "$iteration,$value,$t1,$t2")
+        image = reverse(reshape(abs.(Array(x)), image_size); dims=1)
+        savefig(
+            plot_image(image; title="AD iteration $iteration"),
+            joinpath(output_directory, "iteration_$(lpad(iteration, 2, '0')).png")
+        )
+        println("iteration=$iteration loss=$value T1=$t1 T2=$t2")
+        iteration == iterations && continue
+        x, T1, T2 = x .- step .* ∇x,
+            max.(T1 .- relaxation_step .* ∇T1, eps(Float32)),
+            max.(T2 .- relaxation_step .* ∇T2, eps(Float32))
     end
-    optimization_seconds = (time_ns() - optimization_start) / 1e9
-
-    rows = ["iteration,loss,T1,T2"; ["$iteration,$(losses[iteration + 1]),$(relaxation_values[iteration + 1][1]),$(relaxation_values[iteration + 1][2])" for iteration in 0:ITERATIONS]]
-    write(joinpath(OUTPUT_DIRECTORY, "loss.csv"), join(rows, '\n') * "\n")
-    total_seconds = (time_ns() - total_start) / 1e9
-    println("compile_seconds=$compile_seconds optimization_seconds=$optimization_seconds total_seconds=$total_seconds")
-    (; x=Array(x), losses, compile_seconds, optimization_seconds, total_seconds)
+    write(joinpath(output_directory, "loss.csv"), join(rows, '\n') * "\n")
+    Array(x)
 end
 
 abspath(PROGRAM_FILE) == (@__FILE__) && run_final_ad()
