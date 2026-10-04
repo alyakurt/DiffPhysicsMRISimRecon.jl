@@ -28,7 +28,7 @@ function raid_entries(filename)
     end
 end
 
-function imaging_scans(filename, entry)
+function data_scans(filename, entry, samples_per_profile, coil_count)
     scans = NamedTuple[]
     open(filename) do io
         seek(io, entry.off_)
@@ -44,7 +44,8 @@ function imaging_scans(filename, entry)
                 (UInt64(header.aulEvalInfoMask[2]) << 32)
             samples = Int(header.ushSamplesInScan)
             channels = Int(header.ushUsedChannels)
-            if samples == READOUT_SAMPLES && channels == COILS && (flags & 0x8) != 0
+            if samples == samples_per_profile && channels == coil_count &&
+                (flags & 0x8) != 0
                 data = Matrix{ComplexF32}(undef, samples, channels)
                 channel_ids = Vector{Int}(undef, channels)
                 for channel in 1:channels
@@ -59,6 +60,7 @@ function imaging_scans(filename, entry)
                     timestamp=Int(header.ulTimeStamp),
                     flags,
                     channel_ids,
+                    header,
                     data,
                 ))
             end
@@ -100,6 +102,75 @@ function sequence_layout(sequence)
     all((1 .<= pattern) .& (pattern .<= phase_lines)) ||
         error("Encoded phase line is out of range")
     pattern
+end
+
+function entry_header(filename, entry)
+    open(filename) do io
+        seek(io, entry.off_)
+        length = Int(read(io, UInt32))
+        String(read(io, length - sizeof(UInt32)))
+    end
+end
+
+function protocol_value(header, key)
+    found = match(Regex("\\Q$key\\E\\s*=\\s*([-+0-9.eE]+)"), header)
+    isnothing(found) && error("Missing Siemens protocol value: $key")
+    parse(Float32, only(found.captures))
+end
+
+scan_position(scan) = Float32[
+    scan.header.sSliceData.sSlicePosVec.flSag,
+    scan.header.sSliceData.sSlicePosVec.flCor,
+    scan.header.sSliceData.sSlicePosVec.flTra,
+]
+scan_directions(scan) = Float32.(KomaMRI.KomaMRIBase.rotation_matrix(
+    QuaternionRot(scan.header.sSliceData.aflQuaternion...),
+))
+centered_axis(width, count) = Float32.(range(
+    -width / 2 + width / (2count); step=width / count, length=count,
+))
+
+function adjustment_sensitivity_maps(filename, entry, imaging_scan, image_size, image_fov)
+    header = entry_header(filename, entry)
+    matrix = Tuple(round(Int, protocol_value(header, key)) for key in (
+        "sKSpace.lBaseResolution", "sKSpace.lPhaseEncodingLines",
+        "sKSpace.lPartitions",
+    ))
+    fov = Float32[protocol_value(header, key) for key in (
+        "sSliceArray.asSlice[0].dReadoutFOV",
+        "sSliceArray.asSlice[0].dPhaseFOV",
+        "sSliceArray.asSlice[0].dThickness",
+    )]
+    coil_count = length(imaging_scan.channel_ids)
+    scans = data_scans(filename, entry, 2matrix[1], coil_count)
+    kspace = zeros(ComplexF32, 2matrix[1], matrix[2], matrix[3], coil_count)
+    for scan in scans
+        line = Int(scan.header.sLC.ushLine) + 1
+        partition = Int(scan.header.sLC.ushPartition) + 1
+        kspace[:, line, partition, :] .= scan.data
+    end
+    volumes = fftshift(ifft(ifftshift(kspace, (1, 2, 3)), (1, 2, 3)), (1, 2, 3))
+    first_readout = fld(size(volumes, 1) - matrix[1], 2) + 1
+    readout = first_readout:(first_readout + matrix[1] - 1)
+    channels = [only(findall(==(id), scans[1].channel_ids)) for id in imaging_scan.channel_ids]
+    volumes = Array(@view volumes[readout, :, :, channels])
+    rss = sqrt.(sum(abs2, volumes; dims=4))
+    volumes ./= max.(rss, 0.01f0 * maximum(rss))
+
+    x = repeat(centered_axis(image_fov[1], image_size[1]), image_size[2])
+    y = repeat(centered_axis(image_fov[2], image_size[2]); inner=image_size[1])
+    positions = scan_position(imaging_scan) .+
+        scan_directions(imaging_scan)[:, 1] .* x' .+
+        scan_directions(imaging_scan)[:, 2] .* y'
+    coordinates = scan_directions(scans[1])' *
+        (positions .- scan_position(scans[1]))
+    receiver = ArbitraryCoilSens(
+        centered_axis.(fov, size(volumes)[1:3])..., volumes,
+    )
+    values = get_sens(receiver, eachrow(coordinates)...)
+    maps = reshape(values, image_size..., coil_count)
+    rss = sqrt.(sum(abs2, maps; dims=3))
+    maps ./ max.(rss, 0.01f0 * maximum(rss))
 end
 
 function contiguous_phase_region(pattern)
@@ -262,7 +333,7 @@ function interpolate_grappa!(kspace, pattern)
     (; acs, validation_nrmse, reconstructed_lines=length(missing_lines))
 end
 
-function reconstruct_contrasts(scans, pattern)
+function reconstruct_contrasts(scans, pattern, sensitivity_maps)
     length(scans) == ACQUIRED_PROFILES * CONTRASTS ||
         error("Expected 760 imaging profiles, found $(length(scans))")
     all(scan.channel_ids == scans[1].channel_ids for scan in scans) ||
@@ -283,21 +354,23 @@ function reconstruct_contrasts(scans, pattern)
     grappa = interpolate_grappa!(encoded, pattern)
     coil_images = fftshift(ifft(ifftshift(encoded, (1, 2)), (1, 2)), (1, 2))
 
-    reference_coils = coil_images[:, :, 5, :]
-    reference_magnitude = sqrt.(dropdims(
-        sum(abs2, reference_coils; dims=3); dims=3,
+    support_magnitude = sqrt.(dropdims(
+        sum(abs2, @view(coil_images[:, :, 5, :]); dims=3); dims=3,
     ))
-    denominator = reference_magnitude .+ eps(Float32)
+    denominator = sum(abs2, sensitivity_maps; dims=3) .+ eps(Float32)
     combined = Array{ComplexF32}(
         undef, READOUT_SAMPLES, FULL_PHASE_LINES, CONTRASTS,
     )
     for contrast in 1:CONTRASTS
         contrast_coils = coil_images[:, :, contrast, :]
         combined[:, :, contrast] .= dropdims(sum(
-            conj.(reference_coils) .* contrast_coils; dims=3,
-        ); dims=3) ./ denominator
+            conj.(sensitivity_maps) .* contrast_coils; dims=3,
+        ); dims=3) ./ dropdims(denominator; dims=3)
     end
-    real.(combined), reference_magnitude, grappa
+    reference = @view combined[:, :, 5]
+    reference_phase = reference ./ max.(abs.(reference), floatmin(Float32))
+    signed = real.(conj.(reshape(reference_phase, size(reference)..., 1)) .* combined)
+    signed, support_magnitude, grappa
 end
 
 function save_pgm(path, image)
@@ -316,18 +389,23 @@ function prepare(raw_file, sequence_file, output_directory)
     pattern = sequence_layout(sequence)
     entries = raid_entries(raw_file)
     length(entries) >= 2 || error("The Twix file has no openMOLLI measurement")
-    scans = imaging_scans(raw_file, entries[2])
-    signed_contrasts, reference_magnitude, grappa =
-        reconstruct_contrasts(scans, pattern)
+    scans = data_scans(raw_file, entries[2], READOUT_SAMPLES, COILS)
+    sensitivity_maps = adjustment_sensitivity_maps(
+        raw_file, entries[1], first(scans), OUTPUT_SIZE,
+        1000f0 .* Float32.(sequence.DEF["FOV"][1:2]),
+    )
+    signed_contrasts, support_magnitude, grappa =
+        reconstruct_contrasts(scans, pattern, sensitivity_maps)
 
     rows = round.(Int, range(1, size(signed_contrasts, 1); length=OUTPUT_SIZE[1]))
     columns = round.(Int, range(1, size(signed_contrasts, 2); length=OUTPUT_SIZE[2]))
     signed_contrasts = signed_contrasts[rows, columns, :]
-    reference_magnitude = reference_magnitude[rows, columns]
-    support = reference_magnitude .>= 0.05f0 * maximum(reference_magnitude)
+    support_magnitude = support_magnitude[rows, columns]
+    support = support_magnitude .>= 0.05f0 * maximum(support_magnitude)
 
     write(joinpath(output_directory, "signed_contrasts.f32"), signed_contrasts)
-    write(joinpath(output_directory, "reference_magnitude.f32"), reference_magnitude)
+    write(joinpath(output_directory, "coil_sensitivities.c32"), sensitivity_maps)
+    write(joinpath(output_directory, "support_magnitude.f32"), support_magnitude)
     write(joinpath(output_directory, "support.u8"), UInt8.(support))
     cp(sequence_file, joinpath(output_directory, basename(sequence_file)); force=true)
     save_pgm(
@@ -366,6 +444,9 @@ function prepare(raw_file, sequence_file, output_directory)
         GRAPPA_regularization = $GRAPPA_REGULARIZATION
         GRAPPA_reconstructed_phase_lines = $(grappa.reconstructed_lines)
         GRAPPA_heldout_contrast_NRMSE = $(grappa.validation_nrmse)
+        coil_sensitivity_source = $(String(UInt8[x for x in entries[1].protName_ if x != 0]))
+        coil_phase_reference_contrast = 5
+        fully_sampled_data = none
         readout_samples = $READOUT_SAMPLES
         receive_channels = $COILS
         output_size = $(OUTPUT_SIZE[1])x$(OUTPUT_SIZE[2])
@@ -375,7 +456,8 @@ function prepare(raw_file, sequence_file, output_directory)
         """,
     )
     println("Prepared openMOLLI AD inputs in $output_directory")
-    (; signed_contrasts, reference_magnitude, support, center_gaps, grappa)
+    (; signed_contrasts, sensitivity_maps, support_magnitude, support,
+       center_gaps, grappa)
 end
 
 export prepare
